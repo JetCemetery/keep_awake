@@ -1,27 +1,35 @@
-﻿using System;
-using System.Threading;
+﻿using System.Diagnostics;
  
 namespace Keep_Awake
 {
 
     class Program
     {
+        #region Compile options
+        private static bool RunForver = false;
+        #endregion
+
+        #region Needed local variables for operation
         private static Win32.POINT beforePOS;
         private static Win32.POINT afterPOS;
         private static int timeout = 15000; //15000;
-        private static Win32.EXECUTION_STATE original_EXE_state;// = null;
-        private static bool prevent_sleep_Enabled;
+        private static Win32.EXECUTION_STATE InitialPowerState;// = null;
+        private static bool SleepDisabled;
+        #endregion
         static void Main(string[] args)
         {
-            beforePOS = Win32.GetCursorPosition();
-            afterPOS = Win32.GetCursorPosition();
-            original_EXE_state = GetOriginal_EXE_state();
-            prevent_sleep_Enabled = false;
-            Thread t = new Thread(watchdog);
-            t.Start();
+            if (OnlyOneInstance())
+            {
+                beforePOS = Win32.GetCursorPosition();
+                afterPOS = Win32.GetCursorPosition();
+                InitialPowerState = GetCurrentPowerState();
+                SleepDisabled = false;
+                Thread t = new Thread(Watchdog);
+                t.Start();
+            }
         }
- 
-        private static void watchdog()
+
+        private static void Watchdog()
         {
             DateTime today = DateTime.Today;
             DateTime stop_process = new DateTime(today.Year, today.Month, today.Day, 18, 0, 0);
@@ -33,16 +41,19 @@ namespace Keep_Awake
                 afterPOS = Win32.GetCursorPosition();
                 if (DidMouseMove() == false)
                 {
-                    //System.Diagnostics.Debug.WriteLine("moving mouse");
                     PreventSleep();
                     MoveMouse();
                 }
-                else { reenabledSleep(); }
+                else { ReenabledSleep(); }
                    
-                if(DateTime.Now >= stop_process)
-                    break;
+                if(RunForver == false)
+                {
+                    if (DateTime.Now >= stop_process)
+                        break;
+                }
+
             }
-            reenabledSleep();
+            ReenabledSleep();
         }
 
         private static void MoveMouse()
@@ -58,31 +69,73 @@ namespace Keep_Awake
             return (beforePOS.x != afterPOS.x || beforePOS.y != afterPOS.y) ? true : false;
         }
  
-        private static Win32.EXECUTION_STATE GetOriginal_EXE_state()
+        private static Win32.EXECUTION_STATE GetCurrentPowerState()
         {
             return Win32.SetThreadExecutionState(Win32.EXECUTION_STATE.ES_CONTINUOUS);
         }
  
-        private static void reenabledSleep()
+        private static void ReenabledSleep()
         {
-            if (prevent_sleep_Enabled)
+            if (SleepDisabled)
             {
-                Win32.SetThreadExecutionState(original_EXE_state);
-                prevent_sleep_Enabled = false;
+                Win32.SetThreadExecutionState(InitialPowerState);
+                SleepDisabled = false;
             }  
         }
  
         private static void PreventSleep()
         {
-            if (prevent_sleep_Enabled == false)
+            if (SleepDisabled == false)
             {
                 Win32.SetThreadExecutionState(
                     Win32.EXECUTION_STATE.ES_DISPLAY_REQUIRED |
                     Win32.EXECUTION_STATE.ES_CONTINUOUS |
                     Win32.EXECUTION_STATE.ES_AWAYMODE_REQUIRED);
-                prevent_sleep_Enabled = true;
+                SleepDisabled = true;
             }
  
+        }
+
+        private static bool OnlyOneInstance()
+        {
+            //Prevent this specific program to run mutiple times
+            //if tool detects two (or more) instance like this running, you shall return false
+            bool returningBool = true;
+            short totalHits = 0;
+            string? fullpath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            if (string.IsNullOrEmpty(fullpath) == false)
+            {
+                string fname = Path.GetFileNameWithoutExtension(fullpath);
+                Process[] processes = Process.GetProcesses();
+                foreach (Process process in processes)
+                {
+                    try
+                    {
+                        if (string.IsNullOrEmpty(process.ProcessName) == false)
+                        {
+                            if (process.ProcessName.Equals(fname))
+                            {
+                                string? curFpath = process.MainModule?.FileName;
+                                if (string.IsNullOrEmpty(curFpath) == false)
+                                {
+                                    if (curFpath.Equals(fullpath))
+                                    {
+                                        totalHits++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                    }
+                }
+            }
+
+            //if you have more than one, user is double tapping.
+            if (totalHits > 1)
+                returningBool = false;
+            return returningBool;
         }
     }
 }
